@@ -1,67 +1,65 @@
-From 8cf0d2fcff1a0df6496e9a56a4c320012cc6eb70 Mon Sep 17 00:00:00 2001
-From: phoenix384 <phoenix384@gmx.de>
-Date: Thu, 6 Aug 2015 16:35:56 +0200
-Subject: [PATCH 1/2] Fix conversion failure with locale using comma as decimal
- separator
+From 715797022f3cc2929823f162a63c85160526a4d0 Mon Sep 17 00:00:00 2001
+From: ilias_ar <ilias.arslanov@gmail.com>
+Date: Sat, 17 Oct 2015 14:58:43 +0200
+Subject: [PATCH 1/2] [JENKINS-28733] fix
+
+fixe an issue when URI's details were not shown on some pages
+---
+ .../hudson/plugins/performance/PerformanceReportMap/index.jelly       | 4 +---
+ .../hudson/plugins/performance/TrendReportGraphs/index.jelly          | 4 +---
+ 2 files changed, 2 insertions(+), 6 deletions(-)
+
+diff --git a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
+index f069a52..6d81576 100644
+--- a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
++++ b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
+@@ -19,9 +19,7 @@
+          <j:forEach var="uriReport" items="${performanceReport.getUriListOrdered()}">
+            <tr class="${h.ifThenElse(uriReport.failed,'red','')}">
+              <td class="left">
+-               <a href="./uriReport/${uriReport.encodeUriReport()}">
+-               <st:out value="${uriReport.getShortUri()}" />
+-               </a>
++               <st:out value="${uriReport.getStaplerUri()}" />
+              </td>
+            <j:choose>
+              <j:when test="${performanceReport.ifSummarizerParserUsed(performanceReport.getReportFileName())}">
+diff --git a/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly b/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly
+index c5037ae..99e640a 100644
+--- a/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly
++++ b/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly
+@@ -14,9 +14,7 @@
+           <strong class="uri">${%URI}: ${URI}</strong>
+          <tr>
+           <td class="left">
+-              <a href="./uriReport/${it.getUriReport(URI).encodeUriReport()}">
+-              <st:out value="${it.getUriReport(URI).getShortUri()}" />
+-              </a>
++              <st:out value="${it.getUriReport(URI).getStaplerUri()}" />
+           </td>
+           <j:choose>
+             <j:when test="${it.getUriReport(URI).getPerformanceReport().ifSummarizerParserUsed(it.getPerformanceReport().getReportFileName())}">
+
+From d417f62c5a38b09c4f7af5c6df6529d1cb40b96a Mon Sep 17 00:00:00 2001
+From: ilias_ar <ilias.arslanov@gmail.com>
+Date: Sat, 17 Oct 2015 15:10:06 +0200
+Subject: [PATCH 2/2] [feature] fix "All URIs" at the bottom of the table in
+ performance report
 
 ---
- src/main/java/hudson/plugins/performance/AbstractReport.java | 2 --
- 1 file changed, 2 deletions(-)
+ .../hudson/plugins/performance/PerformanceReportMap/index.jelly         | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/src/main/java/hudson/plugins/performance/AbstractReport.java b/src/main/java/hudson/plugins/performance/AbstractReport.java
-index 82f442b..d53b39b 100644
---- a/src/main/java/hudson/plugins/performance/AbstractReport.java
-+++ b/src/main/java/hudson/plugins/performance/AbstractReport.java
-@@ -13,7 +13,6 @@
- 
-   protected final DecimalFormat percentFormat;
-   protected final DecimalFormat dataFormat; // three decimals
--  protected final DecimalFormat twoDForm; // two decimals
- 
-   abstract public int countErrors();
- 
-@@ -24,7 +23,6 @@ public AbstractReport() {
- 
-     percentFormat = new DecimalFormat("0.0", DecimalFormatSymbols.getInstance( useThisLocale ));
-     dataFormat = new DecimalFormat("#,###", DecimalFormatSymbols.getInstance( useThisLocale ));
--    twoDForm = new DecimalFormat("#.##", DecimalFormatSymbols.getInstance( useThisLocale ));
-   }
- 
-   public String errorPercentFormated() {
-
-From ac55ebdb8b17b30e912dfe2b1e8fd89c17c74773 Mon Sep 17 00:00:00 2001
-From: phoenix384 <phoenix384@gmx.de>
-Date: Thu, 6 Aug 2015 16:41:46 +0200
-Subject: [PATCH 2/2] Fix conversion failure with locale using comma as decimal
- separator
-
----
- src/main/java/hudson/plugins/performance/PerformanceReport.java | 9 +++++----
- 1 file changed, 5 insertions(+), 4 deletions(-)
-
-diff --git a/src/main/java/hudson/plugins/performance/PerformanceReport.java b/src/main/java/hudson/plugins/performance/PerformanceReport.java
-index 728483b..dfa2ef3 100644
---- a/src/main/java/hudson/plugins/performance/PerformanceReport.java
-+++ b/src/main/java/hudson/plugins/performance/PerformanceReport.java
-@@ -4,7 +4,8 @@
- 
- import java.io.IOException;
- import java.io.Serializable;
--import java.text.DecimalFormat;
-+import java.math.BigDecimal;
-+import java.math.RoundingMode;
- import java.util.ArrayList;
- import java.util.Collections;
- import java.util.LinkedHashMap;
-@@ -321,8 +322,8 @@ public boolean ifSummarizerParserUsed(String filename) {
-   }
- 
-   private double roundTwoDecimals(double d) {
--    synchronized (twoDForm) {
--      return Double.valueOf(twoDForm.format(d));
--    }
-+    BigDecimal bd = new BigDecimal(d);
-+	bd = bd.setScale(2, RoundingMode.HALF_UP);
-+	return bd.doubleValue();
-   }
- }
+diff --git a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
+index 6d81576..5116acc 100644
+--- a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
++++ b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
+@@ -35,7 +35,7 @@
+            <j:when test="${performanceReport.ifSummarizerParserUsed(performanceReport.getReportFileName())}">
+            </j:when>
+            <j:otherwise>
+-            <tr class="bold">
++            <tr class="sortbottom bold">
+               <td class="left bold">${%All URIs}</td>
+               <jm:summaryTable it="${performanceReport}" />
+             </tr>
