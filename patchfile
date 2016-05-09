@@ -1,297 +1,67 @@
-From 6c746a8bf325237aadeb7aa62adde0fc12e1d24e Mon Sep 17 00:00:00 2001
-From: hitesh <hpatel@vmware.com>
-Date: Sat, 14 Mar 2015 13:32:56 -0700
-Subject: [PATCH] fixes-27350
+From 8cf0d2fcff1a0df6496e9a56a4c320012cc6eb70 Mon Sep 17 00:00:00 2001
+From: phoenix384 <phoenix384@gmx.de>
+Date: Thu, 6 Aug 2015 16:35:56 +0200
+Subject: [PATCH 1/2] Fix conversion failure with locale using comma as decimal
+ separator
 
-Add shorturi method back to UriReport. This method is used in Jelly script which displays the uri used for test.
-
-Removed sample values need to be added back for the uriReport page.
-URI column is redundant on the uriReport page.
 ---
- .../plugins/performance/PerformanceReport.java     |  2 +-
- .../java/hudson/plugins/performance/UriReport.java | 58 ++++++++++++++++++++--
- .../plugins/performance/UriReport/index.jelly      |  4 --
- .../plugins/performance/ThroughputReportTest.java  |  4 +-
- .../performance/ThroughputUriReportTest.java       |  3 +-
- .../hudson/plugins/performance/UriReportTest.java  | 21 ++++----
- 6 files changed, 70 insertions(+), 22 deletions(-)
+ src/main/java/hudson/plugins/performance/AbstractReport.java | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/src/main/java/hudson/plugins/performance/AbstractReport.java b/src/main/java/hudson/plugins/performance/AbstractReport.java
+index 82f442b..d53b39b 100644
+--- a/src/main/java/hudson/plugins/performance/AbstractReport.java
++++ b/src/main/java/hudson/plugins/performance/AbstractReport.java
+@@ -13,7 +13,6 @@
+ 
+   protected final DecimalFormat percentFormat;
+   protected final DecimalFormat dataFormat; // three decimals
+-  protected final DecimalFormat twoDForm; // two decimals
+ 
+   abstract public int countErrors();
+ 
+@@ -24,7 +23,6 @@ public AbstractReport() {
+ 
+     percentFormat = new DecimalFormat("0.0", DecimalFormatSymbols.getInstance( useThisLocale ));
+     dataFormat = new DecimalFormat("#,###", DecimalFormatSymbols.getInstance( useThisLocale ));
+-    twoDForm = new DecimalFormat("#.##", DecimalFormatSymbols.getInstance( useThisLocale ));
+   }
+ 
+   public String errorPercentFormated() {
+
+From ac55ebdb8b17b30e912dfe2b1e8fd89c17c74773 Mon Sep 17 00:00:00 2001
+From: phoenix384 <phoenix384@gmx.de>
+Date: Thu, 6 Aug 2015 16:41:46 +0200
+Subject: [PATCH 2/2] Fix conversion failure with locale using comma as decimal
+ separator
+
+---
+ src/main/java/hudson/plugins/performance/PerformanceReport.java | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
 
 diff --git a/src/main/java/hudson/plugins/performance/PerformanceReport.java b/src/main/java/hudson/plugins/performance/PerformanceReport.java
-index 728483b..1c512fc 100644
+index 728483b..dfa2ef3 100644
 --- a/src/main/java/hudson/plugins/performance/PerformanceReport.java
 +++ b/src/main/java/hudson/plugins/performance/PerformanceReport.java
-@@ -98,7 +98,7 @@ public void addSample(HttpSample pHttpSample) throws SAXException {
-     synchronized (uriReportMap) {
-       UriReport uriReport = uriReportMap.get(staplerUri);
-       if (uriReport == null) {
--        uriReport = new UriReport(staplerUri, uri);
-+        uriReport = new UriReport(this, staplerUri, uri);
-         uriReportMap.put(staplerUri, uriReport);
-       }
-       uriReport.addHttpSample(pHttpSample);
-diff --git a/src/main/java/hudson/plugins/performance/UriReport.java b/src/main/java/hudson/plugins/performance/UriReport.java
-index 34ef82b..a69fb0b 100644
---- a/src/main/java/hudson/plugins/performance/UriReport.java
-+++ b/src/main/java/hudson/plugins/performance/UriReport.java
-@@ -1,10 +1,13 @@
- package hudson.plugins.performance;
- 
-+import hudson.model.AbstractBuild;
- import hudson.model.ModelObject;
- import hudson.util.ChartUtil;
+@@ -4,7 +4,8 @@
  
  import java.io.IOException;
  import java.io.Serializable;
-+import java.io.UnsupportedEncodingException;
-+import java.net.URLEncoder;
+-import java.text.DecimalFormat;
++import java.math.BigDecimal;
++import java.math.RoundingMode;
  import java.util.ArrayList;
  import java.util.Collections;
- import java.util.Date;
-@@ -40,6 +43,11 @@
-   
-   private UriReport lastBuildUriReport;
- 
-+  /**
-+   * The parent object to which this object belongs.
-+   */
-+  private final PerformanceReport performanceReport;
-+
-   private String uri;
-   
-   /**
-@@ -97,7 +105,8 @@
-    */
-   private Date end = null;
- 
--  UriReport(String staplerUri, String uri) {
-+  UriReport(PerformanceReport performanceReport, String staplerUri, String uri) {
-+    this.performanceReport = performanceReport;
-     this.staplerUri = staplerUri;
-     this.uri = uri;
-   }
-@@ -107,7 +116,7 @@ public void addHttpSample(HttpSample sample) {
-       nbError++;
-     }
-     synchronized (samples) {
--      if (samples.add(new Sample(sample.getDate(), sample.getDuration()))) {
-+      if (samples.add(new Sample(sample.getHttpCode(), sample.getDate(), sample.getDuration()))) {
-         isSorted = false;
-       }
-     }
-@@ -172,14 +181,26 @@ public long getMedian() {
-     return getDurationAt(0.5);
+ import java.util.LinkedHashMap;
+@@ -321,8 +322,8 @@ public boolean ifSummarizerParserUsed(String filename) {
    }
  
-+  public AbstractBuild<?, ?> getBuild() {
-+    return performanceReport.getBuild();
-+  }
-+
-   public String getDisplayName() {
-     return getUri();
+   private double roundTwoDecimals(double d) {
+-    synchronized (twoDForm) {
+-      return Double.valueOf(twoDForm.format(d));
+-    }
++    BigDecimal bd = new BigDecimal(d);
++	bd = bd.setScale(2, RoundingMode.HALF_UP);
++	return bd.doubleValue();
    }
- 
-+  public List<Sample> getHttpSampleList() {
-+    return samples;
-+  }
-+
-+  public PerformanceReport getPerformanceReport() {
-+    return performanceReport;
-+  }
-+
-   protected List<Long> getSortedDuration() {
-     synchronized (samples) {
-       if (!isSorted || durationsSortedBySize == null || durationsSortedBySize.size() != samples.size()) {
--        
-+
-         durationsSortedBySize = new ArrayList<Long>(samples.size());
-         for (Sample sample : samples) {
-           durationsSortedBySize.add(sample.duration);
-@@ -228,6 +249,13 @@ public String getUri() {
-     return uri;
-   }
- 
-+  public String getShortUri() {
-+    if ( uri.length() > 130 ) {
-+        return uri.substring( 0, 129 );
-+    }
-+    return uri;
-+  }
-+
-   public boolean isFailed() {
-     return countErrors() != 0;
-   }
-@@ -238,6 +266,14 @@ public int size() {
-     }
-   }
- 
-+  public String encodeUriReport() throws UnsupportedEncodingException {
-+    StringBuilder sb = new StringBuilder(120);
-+    sb.append(performanceReport.getReportFileName()).append(
-+        GraphConfigurationDetail.SEPARATOR).append(getStaplerUri()).append(
-+        END_PERFORMANCE_PARAMETER);
-+    return URLEncoder.encode(sb.toString(), "UTF-8");
-+  }
-+
-   public void addLastBuildUriReport( UriReport lastBuildUriReport ) {
-       this.lastBuildUriReport = lastBuildUriReport;
-   }
-@@ -318,12 +354,26 @@ public Date getEnd() {
-     
-     final Date date;
-     final long duration;
-+    final String httpCode;
-     
--    public Sample(Date date, long duration) {
-+    public Sample(String httpCode, Date date, long duration) {
-+      this.httpCode = httpCode;
-       this.date = date;
-       this.duration = duration;
-     }
- 
-+    public String getHttpCode() {
-+      return httpCode;
-+    }
-+      
-+    public Date getDate() {
-+      return date;
-+    }
-+
-+    public long getDuration() {
-+      return duration;
-+    }
-+
-     /** Compare first based on duration, next on date. */
-     public int compareTo(Sample other) {
-       if (this == other) return 0;
-diff --git a/src/main/resources/hudson/plugins/performance/UriReport/index.jelly b/src/main/resources/hudson/plugins/performance/UriReport/index.jelly
-index e292bc1..33830e0 100644
---- a/src/main/resources/hudson/plugins/performance/UriReport/index.jelly
-+++ b/src/main/resources/hudson/plugins/performance/UriReport/index.jelly
-@@ -27,13 +27,11 @@
-       <table class="sortable source" border="1">
-         <j:choose>
-           <j:when test="${it.getPerformanceReport().ifSummarizerParserUsed(it.getPerformanceReport().getReportFileName())}">
--            <th>${%URI}</th>
-             <th>${%Samples}</th>
-             <th>${%Time}</th>
-             <th>${% Avg Response Time} (ms)</th>
-             <j:forEach var="c" items="${it.httpSampleList}">
-                 <tr>
--                <td class="left">${c.uri}</td>
-                 <td>${c.summarizerSamples}</td>
-                 <td class="center">${c.date}</td>
-                 <td>${c.duration} ms.</td>
-@@ -41,13 +39,11 @@
-             </j:forEach>
-           </j:when>
-           <j:otherwise>
--            <th>${%URI}</th>
-             <th>${%Http Code}</th>
-             <th>${%Time}</th>
-             <th>${%Duration} (ms)</th>
-             <j:forEach var="c" items="${it.httpSampleList}">
-                 <tr class="${h.ifThenElse(c.failed,'red','')}">
--                <td class="left">${c.uri}</td>
-                 <td>${c.httpCode}</td>
-                 <td class="center">${c.date}</td>
-                 <td>${c.duration} ms.</td>
-diff --git a/src/test/java/hudson/plugins/performance/ThroughputReportTest.java b/src/test/java/hudson/plugins/performance/ThroughputReportTest.java
-index 314b7af..01af480 100644
---- a/src/test/java/hudson/plugins/performance/ThroughputReportTest.java
-+++ b/src/test/java/hudson/plugins/performance/ThroughputReportTest.java
-@@ -24,13 +24,13 @@ public void shouldSummarizeThroughputByDifferentUri() {
-         HttpSample httpSample1 = new HttpSample();
-         httpSample1.setDate(new Date());
- 
--        UriReport uriReport1 = new UriReport("f", "url1");
-+        UriReport uriReport1 = new UriReport(performanceReport, "f", "url1");
-         uriReport1.addHttpSample(httpSample1);
- 
-         HttpSample httpSample2 = new HttpSample();
-         httpSample2.setDate(new Date());
- 
--        UriReport uriReport2 = new UriReport("f", "url2");
-+        UriReport uriReport2 = new UriReport(performanceReport, "f", "url2");
-         uriReport2.addHttpSample(httpSample2);
- 
-         performanceReport.getUriReportMap().put(uriReport1.getUri(), uriReport1);
-diff --git a/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java b/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java
-index a5948e6..f2eb4cb 100644
---- a/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java
-+++ b/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java
-@@ -10,7 +10,8 @@
-  */
- public class ThroughputUriReportTest {
- 
--    private UriReport uriReport = new UriReport("f", "x");
-+    private PerformanceReport performanceReport = new PerformanceReport();
-+    private UriReport uriReport = new UriReport(performanceReport, "f", "x");
- 
-     private ThroughputUriReport throughputUriReport = new ThroughputUriReport(uriReport);
- 
-diff --git a/src/test/java/hudson/plugins/performance/UriReportTest.java b/src/test/java/hudson/plugins/performance/UriReportTest.java
-index 0915b64..bc8b08a 100644
---- a/src/test/java/hudson/plugins/performance/UriReportTest.java
-+++ b/src/test/java/hudson/plugins/performance/UriReportTest.java
-@@ -16,14 +16,15 @@
- 
- public class UriReportTest {
- 
--	private static final long AVERAGE = 5;
-+    private static final String HTTP_200 = "200";
-+    private static final long AVERAGE = 5;
- 	private static final long MIN = 0;
- 	private static final long MAX = 10;
- 	private UriReport uriReport;
- 
- 	@Before
- 	public void setUp() {
--		uriReport = new UriReport(null, null);
-+		uriReport = new UriReport(null, null, null);
- 		HttpSample httpSample1 = new HttpSample();
- 		httpSample1.setDuration(MAX);
- 		Date date = new Date();
-@@ -74,8 +75,8 @@ public void testIsFailed() {
- 	public void testCompareSameDateDifferentDuration() {
- 	  // setup fixture
-     final List<Sample> samples = new ArrayList<Sample>();
--	  samples.add( new Sample( new Date(1), 2) );
--    samples.add( new Sample( new Date(1), 1) );
-+	  samples.add( new Sample(HTTP_200, new Date(1), 2) );
-+    samples.add( new Sample(HTTP_200, new Date(1), 1) );
-     
- 	  // execute system under test
-     Collections.sort(samples);
-@@ -93,8 +94,8 @@ public void testCompareSameDateDifferentDuration() {
-   public void testCompareDifferentDateSameDuration() {
-     // setup fixture
-     final List<Sample> samples = new ArrayList<Sample>();
--    samples.add( new Sample( new Date(2), 1) );
--    samples.add( new Sample( new Date(1), 1) );
-+    samples.add( new Sample(HTTP_200, new Date(2), 1) );
-+    samples.add( new Sample(HTTP_200, new Date(1), 1) );
-     
-     // execute system under test
-     Collections.sort(samples);
-@@ -112,8 +113,8 @@ public void testCompareDifferentDateSameDuration() {
-   public void testCompareDifferentDateDifferentDuration() {
-     // setup fixture
-     final List<Sample> samples = new ArrayList<Sample>();
--    samples.add( new Sample( new Date(1), 2) );
--    samples.add( new Sample( new Date(2), 1) );
-+    samples.add( new Sample(HTTP_200, new Date(1), 2) );
-+    samples.add( new Sample(HTTP_200, new Date(2), 1) );
-     
-     // execute system under test
-     Collections.sort(samples);
-@@ -131,8 +132,8 @@ public void testCompareDifferentDateDifferentDuration() {
-   public void testCompareNullDateSameDuration() {
-     // setup fixture
-     final List<Sample> samples = new ArrayList<Sample>();
--    samples.add( new Sample( null, 1) );
--    samples.add( new Sample( null, 1) );
-+    samples.add( new Sample(HTTP_200, null, 1) );
-+    samples.add( new Sample(HTTP_200, null, 1) );
-     
-     try {
-       // execute system under test
+ }
