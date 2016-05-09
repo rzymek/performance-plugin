@@ -1,65 +1,165 @@
-From 715797022f3cc2929823f162a63c85160526a4d0 Mon Sep 17 00:00:00 2001
-From: ilias_ar <ilias.arslanov@gmail.com>
-Date: Sat, 17 Oct 2015 14:58:43 +0200
-Subject: [PATCH 1/2] [JENKINS-28733] fix
-
-fixe an issue when URI's details were not shown on some pages
----
- .../hudson/plugins/performance/PerformanceReportMap/index.jelly       | 4 +---
- .../hudson/plugins/performance/TrendReportGraphs/index.jelly          | 4 +---
- 2 files changed, 2 insertions(+), 6 deletions(-)
-
-diff --git a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
-index f069a52..6d81576 100644
---- a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
-+++ b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
-@@ -19,9 +19,7 @@
-          <j:forEach var="uriReport" items="${performanceReport.getUriListOrdered()}">
-            <tr class="${h.ifThenElse(uriReport.failed,'red','')}">
-              <td class="left">
--               <a href="./uriReport/${uriReport.encodeUriReport()}">
--               <st:out value="${uriReport.getShortUri()}" />
--               </a>
-+               <st:out value="${uriReport.getStaplerUri()}" />
-              </td>
-            <j:choose>
-              <j:when test="${performanceReport.ifSummarizerParserUsed(performanceReport.getReportFileName())}">
-diff --git a/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly b/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly
-index c5037ae..99e640a 100644
---- a/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly
-+++ b/src/main/resources/hudson/plugins/performance/TrendReportGraphs/index.jelly
-@@ -14,9 +14,7 @@
-           <strong class="uri">${%URI}: ${URI}</strong>
-          <tr>
-           <td class="left">
--              <a href="./uriReport/${it.getUriReport(URI).encodeUriReport()}">
--              <st:out value="${it.getUriReport(URI).getShortUri()}" />
--              </a>
-+              <st:out value="${it.getUriReport(URI).getStaplerUri()}" />
-           </td>
-           <j:choose>
-             <j:when test="${it.getUriReport(URI).getPerformanceReport().ifSummarizerParserUsed(it.getPerformanceReport().getReportFileName())}">
-
-From d417f62c5a38b09c4f7af5c6df6529d1cb40b96a Mon Sep 17 00:00:00 2001
-From: ilias_ar <ilias.arslanov@gmail.com>
-Date: Sat, 17 Oct 2015 15:10:06 +0200
-Subject: [PATCH 2/2] [feature] fix "All URIs" at the bottom of the table in
- performance report
+From 023a5f96653159655c5c7098475f79d4a058aaf9 Mon Sep 17 00:00:00 2001
+From: artevel <andras.avar@gmail.com>
+Date: Mon, 14 Dec 2015 09:33:26 +0100
+Subject: [PATCH] [FIXED JENKINS-32046] Rounding error on aggregated throughput
+ in case of different uri report fix
 
 ---
- .../hudson/plugins/performance/PerformanceReportMap/index.jelly         | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ .../plugins/performance/ThroughputReport.java      | 11 +++++----
+ .../plugins/performance/ThroughputUriReport.java   |  4 ++--
+ .../plugins/performance/ThroughputReportTest.java  | 26 ++++++++++++++++++++--
+ .../performance/ThroughputUriReportTest.java       | 14 ++++++------
+ 4 files changed, 40 insertions(+), 15 deletions(-)
 
-diff --git a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
-index 6d81576..5116acc 100644
---- a/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
-+++ b/src/main/resources/hudson/plugins/performance/PerformanceReportMap/index.jelly
-@@ -35,7 +35,7 @@
-            <j:when test="${performanceReport.ifSummarizerParserUsed(performanceReport.getReportFileName())}">
-            </j:when>
-            <j:otherwise>
--            <tr class="bold">
-+            <tr class="sortbottom bold">
-               <td class="left bold">${%All URIs}</td>
-               <jm:summaryTable it="${performanceReport}" />
-             </tr>
+diff --git a/src/main/java/hudson/plugins/performance/ThroughputReport.java b/src/main/java/hudson/plugins/performance/ThroughputReport.java
+index ffe309b..608419e 100644
+--- a/src/main/java/hudson/plugins/performance/ThroughputReport.java
++++ b/src/main/java/hudson/plugins/performance/ThroughputReport.java
+@@ -13,12 +13,15 @@ public ThroughputReport(final PerformanceReport performanceReport) {
+         this.performanceReport = performanceReport;
+     }
+ 
+-    public long get() {
++    public double get() {
+         final List<UriReport> uriReports = performanceReport.getUriListOrdered();
+-        if (uriReports.isEmpty()) return 0L;
++        if (uriReports.isEmpty()) return 0;
++
++        double sumThroughput = 0;
++        for (UriReport uriReport : uriReports) {
++            sumThroughput += new ThroughputUriReport(uriReport).get();
++        }
+ 
+-        long sumThroughput = 0;
+-        for (UriReport uriReport : uriReports) sumThroughput += new ThroughputUriReport(uriReport).get();
+         // here we assume that all uri executed in parallel and have same test duration
+         return sumThroughput;
+     }
+diff --git a/src/main/java/hudson/plugins/performance/ThroughputUriReport.java b/src/main/java/hudson/plugins/performance/ThroughputUriReport.java
+index dacdba1..e356be7 100644
+--- a/src/main/java/hudson/plugins/performance/ThroughputUriReport.java
++++ b/src/main/java/hudson/plugins/performance/ThroughputUriReport.java
+@@ -13,7 +13,7 @@ public ThroughputUriReport(final UriReport uriReport) {
+         this.uriReport = uriReport;
+     }
+ 
+-    public long get() {
++    public double get() {
+         if (uriReport.size() == 0) {
+           return 0;
+         }
+@@ -25,6 +25,6 @@ public long get() {
+         if (duration == 0) {
+           return uriReport.size(); // more than zero requests should always take at least some time. If that didn't get logged, this is the most suitable alternative.
+         }
+-        return (long)(uriReport.size() / ((float)duration / MILLISECONDS_IN_SECOND));
++        return (uriReport.size() / ((double)duration / MILLISECONDS_IN_SECOND));
+     }
+ }
+diff --git a/src/test/java/hudson/plugins/performance/ThroughputReportTest.java b/src/test/java/hudson/plugins/performance/ThroughputReportTest.java
+index 314b7af..4ae2b25 100644
+--- a/src/test/java/hudson/plugins/performance/ThroughputReportTest.java
++++ b/src/test/java/hudson/plugins/performance/ThroughputReportTest.java
+@@ -16,7 +16,7 @@
+ 
+     @Test
+     public void shouldReturnZeroIfNoUri() {
+-        Assert.assertEquals(0, throughputReport.get());
++        Assert.assertEquals(0.0, throughputReport.get());
+     }
+ 
+     @Test
+@@ -36,7 +36,29 @@ public void shouldSummarizeThroughputByDifferentUri() {
+         performanceReport.getUriReportMap().put(uriReport1.getUri(), uriReport1);
+         performanceReport.getUriReportMap().put(uriReport2.getUri(), uriReport2);
+ 
+-        Assert.assertEquals(2, throughputReport.get());
++        Assert.assertEquals(2.0, throughputReport.get());
++    }
++
++    @Test
++    public void shouldSummarizeThroughputUnder1ByDifferentUri() {
++        HttpSample httpSample1 = new HttpSample();
++        httpSample1.setDate(new Date());
++        httpSample1.setDuration(1100);
++
++        UriReport uriReport1 = new UriReport("f", "url1");
++        uriReport1.addHttpSample(httpSample1);
++
++        HttpSample httpSample2 = new HttpSample();
++        httpSample2.setDate(new Date());
++        httpSample2.setDuration(1100);
++
++        UriReport uriReport2 = new UriReport("f", "url2");
++        uriReport2.addHttpSample(httpSample2);
++
++        performanceReport.getUriReportMap().put(uriReport1.getUri(), uriReport1);
++        performanceReport.getUriReportMap().put(uriReport2.getUri(), uriReport2);
++
++        Assert.assertEquals(2.0/1100*1000, throughputReport.get());
+     }
+ 
+ }
+diff --git a/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java b/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java
+index a5948e6..afad0e1 100644
+--- a/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java
++++ b/src/test/java/hudson/plugins/performance/ThroughputUriReportTest.java
+@@ -16,7 +16,7 @@
+ 
+     @Test
+     public void shouldReturnZeroIfNoHttpSamples() {
+-        Assert.assertEquals(0, throughputUriReport.get());
++        Assert.assertEquals(0.0, throughputUriReport.get());
+     }
+ 
+     @Test
+@@ -27,7 +27,7 @@ public void shouldReturnThroughputEvenIfOneHttpSample() {
+ 
+         uriReport.addHttpSample(httpSample1);
+ 
+-        Assert.assertEquals(1, throughputUriReport.get());
++        Assert.assertEquals(1.0, throughputUriReport.get());
+     }
+ 
+     @Test
+@@ -38,7 +38,7 @@ public void shouldReturnZeroWhenAllRequestsTookMoreSecond() {
+ 
+         uriReport.addHttpSample(httpSample1);
+ 
+-        Assert.assertEquals(0, throughputUriReport.get());
++        Assert.assertEquals(0.1, throughputUriReport.get());
+     }
+ 
+     @Test
+@@ -52,7 +52,7 @@ public void shouldReturnCountOfRequestIfAllRequestsTookLessThanOneSecond() {
+         uriReport.addHttpSample(httpSample1);
+         uriReport.addHttpSample(httpSample2);
+ 
+-        Assert.assertEquals(2, throughputUriReport.get());
++        Assert.assertEquals(2.0, throughputUriReport.get());
+     }
+ 
+     @Test
+@@ -83,11 +83,11 @@ public void shouldCalculateThroughput1() {
+         uriReport.addHttpSample(httpSample1);
+         uriReport.addHttpSample(httpSample2);
+ 
+-        Assert.assertEquals(2, throughputUriReport.get());
++        Assert.assertEquals(2.0, throughputUriReport.get());
+     }
+ 
+     @Test
+-    public void shouldCalculateThroughput2() {
++      public void shouldCalculateThroughput2() {
+         long time = System.currentTimeMillis();
+ 
+         // 0 sec - start first request, start second r
+@@ -115,7 +115,7 @@ public void shouldCalculateThroughput2() {
+         uriReport.addHttpSample(httpSample2);
+         uriReport.addHttpSample(httpSample3);
+ 
+-        Assert.assertEquals(0, throughputUriReport.get());
++        Assert.assertEquals(0.5, throughputUriReport.get());
+     }
+ 
+ }
